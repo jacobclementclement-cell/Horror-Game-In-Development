@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Unknown Contact</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div id="menu">
+    <h2>Unknown Contact</h2>
+    <button onclick="startGame()">Connect</button>
+</div>
+
+<div id="game">
+    <div id="bars">
+        <div id="presenceContainer"><div id="presence"></div></div>
+        <div id="sanityContainer"><div id="sanity"></div></div>
+    </div>
+
+    <div id="chat"></div>
+    <div id="typing">Stranger is typing…</div>
+
+    <div id="inputArea">
+        <input id="input" autocomplete="off" />
+        <button id="send">Send</button>
+    </div>
+</div>
+
+<div id="endScreen" style="display:none;">
+    <h2 id="endTitle"></h2>
+    <p id="endText"></p>
+    <button onclick="location.reload()">Restart</button>
+</div>
+
+<script>
+/*CORE STATE */
+let presence = 0;
+let sanity = 100;
+let gameOver = false;
+let lastUserTime = Date.now();
+
+/*HUMAN MODEL*/
+const human = {
+    mood: "neutral",
+    trust: 10,
+    irritation: 0,
+    attachment: 0,
+    dominance: 30,
+    silenceWarnings: 0,
+    lastTopics: [],
+    memory: [],
+    usedLines: new Set()
+};
+
+/*ELEMENTS */
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const send = document.getElementById("send");
+const typing = document.getElementById("typing");
+const presenceBar = document.getElementById("presence");
+const sanityBar = document.getElementById("sanity");
+
+/*  UTILITIES */
+function addMessage(text, type) {
+    const m = document.createElement("div");
+    m.className = "message " + type;
+    m.textContent = text;
+    chat.appendChild(m);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function updateBars() {
+    presenceBar.style.width = presence + "%";
+    sanityBar.style.width = sanity + "%";
+}
+
+function showTyping(delay, cb) {
+    typing.style.display = "block";
+    setTimeout(() => {
+        typing.style.display = "none";
+        cb();
+    }, delay);
+}
+
+function pickLine(pool) {
+    const fresh = pool.filter(l => !human.usedLines.has(l));
+    const choice = (fresh.length ? fresh : pool)
+        [Math.floor(Math.random() * pool.length)];
+    human.usedLines.add(choice);
+    if (human.usedLines.size > 40) human.usedLines.clear();
+    return choice;
+}
+
+/* INPUT ANALYSIS */
+function analyzeInput(text) {
+    const t = text.toLowerCase();
+    if (t.includes("who")) human.lastTopics.push("identity");
+    if (t.includes("why")) human.lastTopics.push("why");
+    if (t.includes("stop") || t.includes("leave")) human.irritation += 3;
+    if (text.length < 4) human.irritation++;
+    if (text.length > 40) human.attachment += 2;
+
+    human.memory.push(text);
+    if (human.lastTopics.length > 6) human.lastTopics.shift();
+    if (human.memory.length > 10) human.memory.shift();
+}
+
+/* MOOD  */
+function updateMood() {
+    if (human.irritation > 6) human.mood = "hostile";
+    else if (human.attachment > 6) human.mood = "attached";
+    else if (human.trust > 5) human.mood = "curious";
+    else human.mood = "neutral";
+}
+
+/*  RESPONSE BANK  */
+const responses = {
+    neutral: [
+        "Go on.",
+        "I’m listening.",
+        "You’re holding something back."
+    ],
+    curious: [
+        "That question mattered to you.",
+        "You’re trying to understand me.",
+        "You wouldn’t ask that unless it scared you."
+    ],
+    hostile: [
+        "Don’t play dumb with me.",
+        "You’re testing boundaries.",
+        "Careful. I notice patterns."
+    ],
+    attached: [
+        "You keep coming back.",
+        "You don’t like the silence either.",
+        "This feels familiar to you."
+    ],
+    memory: [
+        "You mentioned \"{x}\" earlier.",
+        "You circled back again.",
+        "That thought stayed with you."
+    ],
+    silence: [
+        "You went quiet.",
+        "Still there?",
+        "Ignoring me won’t make me leave."
+    ]
+};
+
+/*  BOT LOGIC  */
+function botReply(text, silence=false) {
+    if (!silence) analyzeInput(text);
+    updateMood();
+
+    showTyping(800 + Math.random() * 1200, () => {
+        let line;
+
+        if (silence) {
+            human.silenceWarnings++;
+            human.irritation += 2;
+            line = pickLine(responses.silence);
+        } 
+        else if (human.lastTopics.length && Math.random() < 0.35) {
+            line = pickLine(responses.memory)
+                .replace("{x}", human.lastTopics.at(-1));
+        } 
+        else {
+            line = pickLine(responses[human.mood]);
+        }
+
+        addMessage("Stranger: " + line, "stranger");
+
+        presence += 6 + human.irritation;
+        sanity -= 4 + human.irritation;
+        updateBars();
+
+        if (presence > 70) document.body.classList.add("glitch");
+        if (sanity < 40) document.body.classList.add("flicker");
+
+        if (human.silenceWarnings >= 3)
+            endGame("ABANDONMENT", "You stopped replying. I didn’t.");
+        if (presence >= 100)
+            endGame("CONTROL", "You let me become the loudest voice.");
+        if (sanity <= 0)
+            endGame("DEPENDENCE", "Talking felt safer than being alone.");
+    });
+}
+
+/*  SILENCE CHECK  */
+setInterval(() => {
+    if (gameOver) return;
+    if ((Date.now() - lastUserTime) / 1000 > 20) {
+        botReply("", true);
+    }
+}, 5000);
+
+/* GAME FLOW*/
+function startGame() {
+    document.getElementById("menu").style.display = "none";
+    document.getElementById("game").style.display = "flex";
+    addMessage("Connection established.", "system");
+    addMessage("Stranger: Are you alone right now?", "stranger");
+}
+
+function endGame(title, text) {
+    gameOver = true;
+    document.getElementById("game").style.display = "none";
+    document.getElementById("endTitle").textContent = title;
+    document.getElementById("endText").textContent = text;
+    document.getElementById("endScreen").style.display = "block";
+}
+
+/*INPUT */
+send.onclick = () => {
+    if (!input.value || gameOver) return;
+    lastUserTime = Date.now();
+    addMessage("You: " + input.value, "you");
+    botReply(input.value);
+    input.value = "";
+};
+
+input.addEventListener("keydown", e => {
+    if (e.key === "Enter") send.click();
+});
+</script>
+
+</body>
+</html>
